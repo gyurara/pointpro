@@ -93,9 +93,27 @@ echo ""
 echo "[1/4] Fabric 네트워크 시작 중..."
 cd "$NETWORK_DIR"
 
-# 이미 실행 중인 컨테이너 정리
+# 이미 실행 중인 컨테이너 + CA 컨테이너 완전 정리
 ./network.sh down 2>/dev/null || true
-docker rm -f orderer.example.com peer0.org1.example.com peer0.org2.example.com cli couchdb0 2>/dev/null || true
+docker rm -f orderer.example.com peer0.org1.example.com peer0.org2.example.com cli couchdb0 \
+  ca_org1 ca_org2 ca_orderer 2>/dev/null || true
+# 볼륨도 강제 삭제 (network.sh down이 compose_ 접두사 볼륨을 못 지우는 문제 보완)
+docker volume rm -f \
+  compose_orderer.example.com compose_peer0.org1.example.com compose_peer0.org2.example.com \
+  docker_orderer.example.com docker_peer0.org1.example.com docker_peer0.org2.example.com \
+  2>/dev/null || true
+
+# 이전 실행의 stale 인증서/채널 데이터 제거 (재등록 충돌 방지)
+# organizations/ 전체가 아닌 생성된 하위 디렉토리만 삭제 (static 스크립트 보존)
+# Docker 컨테이너가 root로 생성했을 수 있으므로 Docker로 권한 문제 없이 삭제
+docker run --rm \
+  -v "$NETWORK_DIR/organizations:/target" \
+  alpine sh -c "rm -rf /target/peerOrganizations /target/ordererOrganizations" 2>/dev/null || true
+docker run --rm \
+  -v "$NETWORK_DIR:/target" \
+  alpine sh -c "rm -rf /target/channel-artifacts /target/system-genesis-block" 2>/dev/null || true
+# git static 파일 복구 (registerEnroll.sh 등 스크립트가 삭제됐을 경우 대비)
+git -C "$NETWORK_DIR/.." restore test-network/organizations/ 2>/dev/null || true
 
 ./network.sh up createChannel -ca -c "$CHANNEL"
 echo "✅ 네트워크 + 채널 생성 완료"
@@ -145,6 +163,9 @@ echo "   keydir   : $KEY_DIR"
 # ── 4. 백엔드 빌드 + 실행 ────────────────────────────────────────
 echo ""
 echo "[4/4] Spring Boot 백엔드 빌드 + 시작..."
+# 이전 실행에서 남은 백엔드/프론트 프로세스 정리 (재시작 시 포트 충돌 방지)
+fuser -k 8080/tcp 2>/dev/null || true
+fuser -k 5173/tcp 5174/tcp 2>/dev/null || true
 cd "$BACKEND_DIR"
 
 # MySQL 확인 (로컬 또는 Docker)
@@ -207,6 +228,10 @@ BACKEND_PID=$!
 # ── 5. 프론트엔드 개발 서버 기동 ─────────────────────────────────
 echo ""
 echo "[5/5] 프론트엔드 개발 서버 시작..."
+# nvm 로드 후 Node 20 사용 (Vite는 Node 14.18+ 필요)
+export NVM_DIR="${NVM_DIR:-$HOME/.nvm}"
+[ -s "$NVM_DIR/nvm.sh" ] && source "$NVM_DIR/nvm.sh"
+nvm use 20 2>/dev/null || nvm use --lts 2>/dev/null || true
 cd "$FRONTEND_DIR"
 if [ ! -d node_modules ]; then
   echo "node_modules 없음, npm install 실행..."
