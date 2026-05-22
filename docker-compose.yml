@@ -1,34 +1,18 @@
 #
-# AWS EC2 + Docker Compose deployment baseline.
-# - Publish only the frontend port from the EC2 host or an AWS ALB target group.
-# - Keep backend and MySQL private on the Compose network.
-# - Backend defaults to the Spring prod profile for AWS deployment.
+# PetChain Docker Compose — 백엔드 + 프론트엔드 전용
 #
-services:
-  mysql:
-    image: mysql:8.0
-    container_name: petchain-mysql
-    environment:
-      MYSQL_ROOT_PASSWORD: ${DB_PASSWORD:?Set DB_PASSWORD in the project .env file}
-      MYSQL_DATABASE: ${DB_NAME:-petchain}
-      TZ: Asia/Seoul
-    volumes:
-      - mysql_data:/var/lib/mysql
-      # 운영(prod 프로파일)으로 빈 DB에 처음 기동할 때 스키마를 자동 적재하려면 주석 해제.
-      # prod 는 ddl-auto=validate 라 스키마가 미리 있어야 기동된다. mysql 이미지는 첫 초기화
-      # (빈 볼륨)에서만 /docker-entrypoint-initdb.d 의 .sql 을 MYSQL_DATABASE 에 실행한다.
-      # - ./db/schema.sql:/docker-entrypoint-initdb.d/01-schema.sql:ro
-    command:
-      - --character-set-server=utf8mb4
-      - --collation-server=utf8mb4_unicode_ci
-    restart: unless-stopped
-    healthcheck:
-      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -uroot -p$${MYSQL_ROOT_PASSWORD}"]
-      interval: 10s
-      timeout: 5s
-      retries: 6
-      start_period: 30s
+# MySQL은 로컬 설치본을 사용합니다 (Docker 아님).
+# 로컬 MySQL 접속: host.docker.internal:3306 (Linux/Mac 공통)
+#
+# 권장 시작법:
+#   bash scripts/start.sh              # 로컬 MySQL + 백엔드(네이티브) + 프론트(네이티브)
+#   bash scripts/start.sh --chain      # + Fabric 체인코드 포함
+#
+# Docker Compose 직접 사용 (백엔드+프론트만 컨테이너로 올릴 때):
+#   docker compose up -d
+#   docker compose -f docker-compose.yml -f docker-compose.chain.yml up -d   # 체인 포함
 
+services:
   backend:
     build:
       context: ./be/backend
@@ -36,26 +20,25 @@ services:
     container_name: petchain-backend
     expose:
       - "8080"
+    extra_hosts:
+      # 컨테이너 → 로컬 MySQL(호스트) 접근용 (Linux 포함 전 플랫폼 호환)
+      - "host.docker.internal:host-gateway"
     environment:
-      # 병원/보험사/admin 기본 계정은 어느 프로파일에서든 항상 시드된다(loginId 로 멱등).
-      # 비우면 ddl-auto=update 로 스키마가 자동 생성된다(가장 간단).
-      # prod 로 두면 JWT_SECRET/DB_PASSWORD 기본값 사용을 차단하고(ProductionConfigGuard)
-      # ddl-auto=validate 가 되므로, 위 mysql 의 schema.sql 자동 적재 주석을 함께 해제해야 한다.
       SPRING_PROFILES_ACTIVE: ${SPRING_PROFILES_ACTIVE:-}
-      DB_HOST: mysql
-      DB_PORT: 3306
+      # 로컬 MySQL 접속: host.docker.internal 로 호스트를 가리킴
+      DB_HOST: ${DB_HOST:-host.docker.internal}
+      DB_PORT: ${DB_PORT:-3306}
       DB_NAME: ${DB_NAME:-petchain}
       DB_USERNAME: ${DB_USERNAME:-root}
-      DB_PASSWORD: ${DB_PASSWORD:?Set DB_PASSWORD in the project .env file}
-      JWT_SECRET: ${JWT_SECRET:?Set JWT_SECRET in the project .env file}
+      DB_PASSWORD: ${DB_PASSWORD:?Set DB_PASSWORD in .env}
+      JWT_SECRET: ${JWT_SECRET:?Set JWT_SECRET in .env}
       JWT_ACCESS_TOKEN_EXPIRATION: ${JWT_ACCESS_TOKEN_EXPIRATION:-3600000}
       JWT_REFRESH_TOKEN_EXPIRATION: ${JWT_REFRESH_TOKEN_EXPIRATION:-604800000}
-      SPRING_PROFILES_ACTIVE: ${SPRING_PROFILES_ACTIVE:-prod}
       SERVER_PORT: 8080
       FRONTEND_URL: ${FRONTEND_URL:-http://localhost}
       CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:-http://localhost}
       ADMIN_LOGIN_ID: ${ADMIN_LOGIN_ID:-admin}
-      ADMIN_PASSWORD: ${ADMIN_PASSWORD:?Set ADMIN_PASSWORD in the project .env file}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:?Set ADMIN_PASSWORD in .env}
       GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
       GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}
       GOOGLE_REDIRECT_URI: ${GOOGLE_REDIRECT_URI:-http://localhost/api/auth/oauth/google/callback}
@@ -65,9 +48,16 @@ services:
       KAKAO_CLIENT_ID: ${KAKAO_CLIENT_ID:-}
       KAKAO_CLIENT_SECRET: ${KAKAO_CLIENT_SECRET:-}
       KAKAO_REDIRECT_URI: ${KAKAO_REDIRECT_URI:-http://localhost/api/auth/oauth/kakao/callback}
-    depends_on:
-      mysql:
-        condition: service_healthy
+      # 체인코드 연동 (chain.enabled=false 이면 무시됨)
+      CHAIN_ENABLED: ${CHAIN_ENABLED:-false}
+      CHAIN_MSP_ID: ${CHAIN_MSP_ID:-Org1MSP}
+      CHAIN_CHANNEL: ${CHAIN_CHANNEL:-petchannel}
+      CHAIN_CHAINCODE: ${CHAIN_CHAINCODE:-petchain}
+      CHAIN_PEER_ENDPOINT: ${CHAIN_PEER_ENDPOINT:-host.docker.internal:7051}
+      CHAIN_PEER_HOST_OVERRIDE: ${CHAIN_PEER_HOST_OVERRIDE:-peer0.org1.example.com}
+      CHAIN_TLS_CERT_PATH: ${CHAIN_TLS_CERT_PATH:-}
+      CHAIN_CERT_PATH: ${CHAIN_CERT_PATH:-}
+      CHAIN_KEY_DIR: ${CHAIN_KEY_DIR:-}
     restart: unless-stopped
 
   frontend:
@@ -86,6 +76,3 @@ services:
       timeout: 5s
       retries: 3
       start_period: 10s
-
-volumes:
-  mysql_data:

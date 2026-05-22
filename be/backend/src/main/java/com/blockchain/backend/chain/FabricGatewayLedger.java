@@ -16,6 +16,9 @@ import org.slf4j.LoggerFactory;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Component;
 
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -32,6 +35,8 @@ import java.util.stream.Stream;
 public class FabricGatewayLedger implements PetChainLedger {
 
     private static final Logger log = LoggerFactory.getLogger(FabricGatewayLedger.class);
+
+    private static final ObjectMapper JSON = new ObjectMapper();
 
     private final Gateway gateway;
     private final Contract contract;
@@ -159,8 +164,10 @@ public class FabricGatewayLedger implements PetChainLedger {
     public long getPointBalance(String insurerId) {
         String raw = eval("GetPointBalance", insurerId);
         try {
-            return Long.parseLong(raw.replaceAll("[^0-9\\-]", ""));
+            JsonNode root = JSON.readTree(raw);
+            return root.path("balance").asLong(0L);
         } catch (Exception e) {
+            log.warn("GetPointBalance JSON 파싱 실패 (insurerId={}, raw={}): {}", insurerId, raw, e.getMessage());
             return 0L;
         }
     }
