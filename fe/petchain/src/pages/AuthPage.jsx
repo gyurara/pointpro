@@ -99,12 +99,20 @@ export default function AuthPage({ mode, onLogin, onBack }) {
   }
 
   const ROLE_MAP = { USER: 'guardian', HOSPITAL: 'hospital', INSURANCE: 'insurance', PLATFORM: 'platform' }
+  const EXPECTED_TYPE = { guardian: 'USER', hospital: 'HOSPITAL' }
 
   async function handleLogin() {
     setError('')
     setLoading(true)
     try {
       const data = await api('/auth/login', { loginId, password: loginPw })
+      const serverType = data.memberType?.toUpperCase()
+      const expected = EXPECTED_TYPE[role]
+      if (expected && serverType !== expected) {
+        const roleLabel = { guardian: '보호자', hospital: '병원' }[role]
+        const actualLabel = { USER: '보호자', HOSPITAL: '병원', INSURANCE: '보험사', PLATFORM: '관리자' }[serverType] || serverType
+        throw new Error(`${roleLabel} 계정이 아닙니다. 이 계정은 ${actualLabel} 계정입니다.`)
+      }
       localStorage.setItem('accessToken', data.accessToken)
       localStorage.setItem('refreshToken', data.refreshToken)
       localStorage.setItem('memberType', data.memberType)
@@ -117,9 +125,8 @@ export default function AuthPage({ mode, onLogin, onBack }) {
           localStorage.setItem('memberName', meData.name || '')
         }
       } catch { /* 선택 정보 조회 실패는 로그인 성공을 막지 않는다. */ }
-      onLogin(ROLE_MAP[data.memberType?.toUpperCase()] || role)
+      onLogin(ROLE_MAP[serverType] || role)
     } catch (e) {
-      // 네트워크/서버 오류든 자격증명 오류든 실패를 그대로 표시한다(가짜 로그인 폴백 없음).
       setError(e.message || '로그인에 실패했습니다.')
     } finally {
       setLoading(false)

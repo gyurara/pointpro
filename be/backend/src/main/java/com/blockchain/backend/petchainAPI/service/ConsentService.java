@@ -146,7 +146,9 @@ public class ConsentService implements ConsentApiPort {
                 record.getTreatmentDate(),
                 String.valueOf(record.getPet().getId()),
                 String.valueOf(record.getHospital().getId()),
-                record.getDetailDataHash()
+                record.getDetailDataHash(),
+                "pending",
+                null
         );
     }
 
@@ -226,7 +228,9 @@ public class ConsentService implements ConsentApiPort {
                 record.getTreatmentDate(),
                 String.valueOf(record.getPet().getId()),
                 String.valueOf(record.getHospital().getId()),
-                record.getDetailDataHash()
+                record.getDetailDataHash(),
+                claim.getClaimStatus(),
+                claim.getReviewResult()
         );
     }
 }

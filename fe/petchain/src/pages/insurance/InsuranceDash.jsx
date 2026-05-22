@@ -204,14 +204,19 @@ export default function InsuranceDash({ showToast, onLogout }) {
       }
 
       // BE 가 success=false 로 응답한 경우(hash_mismatch / consent_revoked 등) — 통과로 처리하지 않는다.
+      // 단, duplicate 응답은 이미 검증된 건이므로 idempotent 로 처리해 결과 탭을 열어준다.
       if (!success) {
-        const reasonLabel = failureReasonLabel(failureReasons)
-        showToast('검증 실패', reasonLabel)
-        setState(s => ({
-          ...s,
-          txLog: [{ time: new Date().toLocaleTimeString(), type: '검증', org: 'ins-001', desc: `${c.recordId} 검증 실패 — ${reasonLabel}` }, ...s.txLog],
-        }))
-        return
+        const isDuplicate = Array.isArray(failureReasons) && failureReasons.some(r => String(r).toLowerCase().includes('duplicate'))
+        if (!isDuplicate) {
+          const reasonLabel = failureReasonLabel(failureReasons)
+          showToast('검증 실패', reasonLabel)
+          setState(s => ({
+            ...s,
+            txLog: [{ time: new Date().toLocaleTimeString(), type: '검증', org: 'ins-001', desc: `${c.recordId} 검증 실패 — ${reasonLabel}` }, ...s.txLog],
+          }))
+          return
+        }
+        // duplicate → idempotent: fall through and show result tab so insurer can re-review
       }
 
       const idempotent = pointsCharged === 0
@@ -528,40 +533,38 @@ export default function InsuranceDash({ showToast, onLogout }) {
                       ))}
                     </div>
 
-                    {/* 심사 결과 버튼 — 아직 결과 미기록인 경우만 */}
-                    {!lastVerified.reviewStatus && (
-                      <>
-                        <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--muted)', marginBottom: 10 }}>
-                          보험사 내부 심사 후 결과를 선택하세요
-                        </div>
-                        <div style={{ display: 'flex', gap: 10 }}>
-                          <button
-                            className="btn btn-success"
-                            style={{ flex: 1, padding: 12, fontSize: 14 }}
-                            onClick={() => handleReview('APPROVED')}
-                          >
-                            ✓ 승인 (APPROVED)
-                          </button>
-                          <button
-                            className="btn btn-danger"
-                            style={{ flex: 1, padding: 12, fontSize: 14 }}
-                            onClick={() => handleReview('REJECTED')}
-                          >
-                            ✕ 반려 (REJECTED)
-                          </button>
-                          <button
-                            className="btn btn-warning"
-                            style={{ flex: 1, padding: 12, fontSize: 14, background: 'var(--warning-xl)', color: 'var(--warning)', borderColor: 'var(--warning)' }}
-                            onClick={() => setFlagModal(lastVerified)}
-                          >
-                            ⚠️ 이상 신고
-                          </button>
-                        </div>
-                        <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 10 }}>
-                          이상 신고는 플랫폼 관리자에게 전달되며, 플랫폼이 병원·보험사와 함께 해당 건을 재검토합니다.
-                        </div>
-                      </>
-                    )}
+                    {/* 심사 결과 버튼 — 항상 표시 (재심사 가능) */}
+                    <>
+                      <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--muted)', marginBottom: 10 }}>
+                        보험사 내부 심사 후 결과를 선택하세요
+                      </div>
+                      <div style={{ display: 'flex', gap: 10 }}>
+                        <button
+                          className="btn btn-success"
+                          style={{ flex: 1, padding: 12, fontSize: 14 }}
+                          onClick={() => handleReview('APPROVED')}
+                        >
+                          ✓ 승인 (APPROVED)
+                        </button>
+                        <button
+                          className="btn btn-danger"
+                          style={{ flex: 1, padding: 12, fontSize: 14 }}
+                          onClick={() => handleReview('REJECTED')}
+                        >
+                          ✕ 반려 (REJECTED)
+                        </button>
+                        <button
+                          className="btn btn-warning"
+                          style={{ flex: 1, padding: 12, fontSize: 14, background: 'var(--warning-xl)', color: 'var(--warning)', borderColor: 'var(--warning)' }}
+                          onClick={() => setFlagModal(lastVerified)}
+                        >
+                          ⚠️ 이상 신고
+                        </button>
+                      </div>
+                      <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 10 }}>
+                        이상 신고는 플랫폼 관리자에게 전달되며, 플랫폼이 병원·보험사와 함께 해당 건을 재검토합니다.
+                      </div>
+                    </>
 
                     {/* 이미 결과 기록된 경우 */}
                     {lastVerified.reviewStatus && (

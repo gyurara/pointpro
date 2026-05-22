@@ -50,7 +50,7 @@ function initFromUrl() {
   }
 
   // 루트 경로: 보호자는 랜딩이 홈, 병원은 대시보드, 플랫폼·보험사는 /admin 전용
-  if (role === 'guardian') return { page: 'landing', role, toast: null }
+  if (role === 'guardian') return { page: 'main', role, toast: null }
   if (role === 'hospital') return { page: 'main', role, toast: null }
   return { page: 'landing', role: null, toast: null }
 }
@@ -185,6 +185,19 @@ function Inner() {
     }
     window.addEventListener('popstate', handlePop)
     return () => window.removeEventListener('popstate', handlePop)
+  }, [])
+
+  // 토큰 만료 시 자동 로그아웃
+  useEffect(() => {
+    const handleAuthLogout = () => {
+      setRole(null)
+      setInitialTab(null)
+      const targetPage = window.location.pathname === '/admin' ? 'admin' : 'landing'
+      setPage(targetPage)
+      window.history.pushState({ page: targetPage, role: null }, '', window.location.pathname)
+    }
+    window.addEventListener('auth:logout', handleAuthLogout)
+    return () => window.removeEventListener('auth:logout', handleAuthLogout)
   }, [])
 
   const [initialTab, setInitialTab] = useState(null)

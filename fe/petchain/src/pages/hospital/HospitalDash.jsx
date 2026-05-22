@@ -149,7 +149,7 @@ function OrgTab() {
     { label: '중소동물병원 B', role: '병원', color: '#fb923c' },
     { label: '중소동물병원 C', role: '병원', color: '#fb923c' },
     { label: 'DB손해보험', role: '보험사', color: '#16a34a' },
-    { label: '현대해상', role: '보험사', color: '#16a34a' },
+    { label: '삼성화재해상보험', role: '보험사', color: '#16a34a' },
   ]
 
   return (
@@ -576,7 +576,7 @@ export default function HospitalDash({ showToast, onLogout }) {
 
             {activeConsents.length > 0 && (
               <div className="card" style={{ marginTop: 28 }}>
-                <div className="card-title">보호자 동의 완료 — 제출 가능한 기록</div>
+                <div className="card-title">보호자 동의 완료 — 보험사 자동 전달 중</div>
                 <table className="tbl">
                   <thead><tr><th>record_id</th><th>반려동물</th><th>질병</th><th>진료비</th><th>동의 상태</th><th></th></tr></thead>
                   <tbody>
@@ -588,10 +588,7 @@ export default function HospitalDash({ showToast, onLogout }) {
                         <td>{c.cost.toLocaleString()}원</td>
                         <td><span className="badge badge-success">동의 완료</span></td>
                         <td>
-                          <button className="btn btn-primary btn-sm" onClick={() => {
-                            setState(s => ({ ...s, creditN: s.creditN + 1, txLog: [{ time: new Date().toLocaleTimeString(), type: '제출', org: 'hosp-001', desc: `${c.recordId} → ${c.insurerName} 제출` }, ...s.txLog] }))
-                            showToast('제출 완료', `${c.recordId} — ${c.insurerName}으로 제출됨`)
-                          }}>제출 →</button>
+                          <span className="badge badge-success" title="보호자 동의 시 보험사로 자동 전달됩니다">✅ 자동 제출됨</span>
                         </td>
                       </tr>
                     ))}

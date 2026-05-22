@@ -431,7 +431,8 @@ function CommunityTab({ state, update, showToast, onRegionSave }) {
   const [editingComment,   setEditingComment]   = useState(null)   // {postId, cmtId, content}
   const [editingReply,     setEditingReply]     = useState(null)   // {postId, cmtId, repId, content}
   const [replyLikes,       setReplyLikes]       = useState({})     // {repId: {count, liked}}
-  const fileRef = useRef()
+  const fileRef     = useRef()
+  const editFileRef = useRef()
   const userRegion    = state.userRegion
   const likedPosts    = state.likedPosts || []
   const filteredPosts = filter==='all' ? state.posts : state.posts.filter(p=>p.authorRegion===userRegion)
@@ -509,9 +510,15 @@ function CommunityTab({ state, update, showToast, onRegionSave }) {
   const handleSavePost = async (postId) => {
     if (!editingPost?.content?.trim()) return
     if (isServerId(postId)) {
-      try { await apiFetch(`/posts/${postId}`, { method:'PUT', body:{ content:editingPost.content.trim() } }) } catch(e) { showToast('수정 실패', e?.message||'수정에 실패했습니다'); return }
+      try {
+        const body = { content: editingPost.content.trim() }
+        if (editingPost.removeImage) body.imageData = null
+        else if (editingPost.imagePreview && !editingPost.imagePreview.startsWith('http')) body.imageData = editingPost.imagePreview
+        await apiFetch(`/posts/${postId}`, { method:'PUT', body })
+      } catch(e) { showToast('수정 실패', e?.message||'수정에 실패했습니다'); return }
     }
-    update({ posts: state.posts.map(p => p.id===postId ? {...p, content:editingPost.content.trim()} : p) })
+    const newImageUrl = editingPost.removeImage ? null : (editingPost.imagePreview ?? state.posts.find(p=>p.id===postId)?.imageUrl ?? null)
+    update({ posts: state.posts.map(p => p.id===postId ? {...p, content:editingPost.content.trim(), imageUrl:newImageUrl} : p) })
     setEditingPost(null)
     showToast('수정 완료', '게시물이 수정되었습니다')
   }
@@ -625,7 +632,7 @@ function CommunityTab({ state, update, showToast, onRegionSave }) {
                 </div>
                 {isMyPost && (
                   <div style={{ display:'flex', gap:4 }}>
-                    <button className="btn btn-ghost btn-sm" style={{ fontSize:12, color:'var(--muted)' }} onClick={() => isEditingThisPost ? setEditingPost(null) : setEditingPost({id:post.id, content:post.content})}>{isEditingThisPost ? '취소' : '✏️ 수정'}</button>
+                    <button className="btn btn-ghost btn-sm" style={{ fontSize:12, color:'var(--muted)' }} onClick={() => isEditingThisPost ? setEditingPost(null) : setEditingPost({id:post.id, content:post.content, imagePreview:post.imageUrl||null, removeImage:false})}>{isEditingThisPost ? '취소' : '✏️ 수정'}</button>
                     <button className="btn btn-ghost btn-sm" style={{ fontSize:12, color:'var(--danger)' }} onClick={() => handleDeletePost(post.id)}>🗑️ 삭제</button>
                   </div>
                 )}
@@ -634,12 +641,21 @@ function CommunityTab({ state, update, showToast, onRegionSave }) {
               {isEditingThisPost ? (
                 <div style={{ marginBottom:12 }}>
                   <textarea className="fi" rows={4} style={{ resize:'vertical', fontFamily:'inherit', marginBottom:8 }} value={editingPost.content} onChange={e=>setEditingPost(p=>({...p,content:e.target.value}))} />
+                  <input ref={editFileRef} type="file" accept="image/*" style={{ display:'none' }} onChange={async e=>{ const f=e.target.files[0]; if(!f) return; try { const data=await compressImage(f); setEditingPost(p=>({...p,imagePreview:data,removeImage:false})) } catch { showToast('이미지 오류','이미지를 불러오지 못했습니다') } }} />
+                  {editingPost.imagePreview && !editingPost.removeImage ? (
+                    <div style={{ position:'relative', marginBottom:8 }}>
+                      <img src={editingPost.imagePreview} alt="" style={{ width:'100%', borderRadius:8, aspectRatio:'16/9', objectFit:'cover', display:'block' }} />
+                      <button onClick={()=>setEditingPost(p=>({...p,imagePreview:null,removeImage:true}))} style={{ position:'absolute', top:6, right:6, background:'rgba(0,0,0,.55)', border:'none', borderRadius:6, color:'#fff', fontSize:12, padding:'3px 8px', cursor:'pointer' }}>✕ 사진 제거</button>
+                    </div>
+                  ) : (
+                    <div className="upload-zone" style={{ marginBottom:8, padding:'10px 14px', fontSize:13 }} onClick={()=>editFileRef.current.click()}>📎 사진 첨부 (선택)</div>
+                  )}
                   <button className="btn btn-primary btn-sm" onClick={() => handleSavePost(post.id)}>저장</button>
                 </div>
               ) : (
                 <div style={{ fontSize:15, color:'var(--text-2)', lineHeight:1.75, marginBottom:12 }}>{post.content}</div>
               )}
-              {post.imageUrl && <div style={{ marginBottom:12, borderRadius:10, overflow:'hidden', aspectRatio:'16/9' }}><img src={post.imageUrl} alt="" style={{ width:'100%', height:'100%', objectFit:'cover' }} /></div>}
+              {!isEditingThisPost && post.imageUrl && <div style={{ marginBottom:12, borderRadius:10, overflow:'hidden', aspectRatio:'16/9' }}><img src={post.imageUrl} alt="" style={{ width:'100%', height:'100%', objectFit:'cover' }} /></div>}
               <div style={{ display:'flex', gap:4, paddingTop:10, borderTop:'1px solid var(--border)' }}>
                 <button className="btn btn-ghost btn-sm" onClick={() => handleLike(post.id)} style={{ color:liked?'#e11d48':'var(--muted)', fontWeight:liked?600:400 }}>{liked?'❤️':'🤍'} {post.likeCount ?? post.likes.length}</button>
                 <button className="btn btn-ghost btn-sm" onClick={() => toggleCommentsView(post.id)}>💬 {post.commentCount ?? post.comments.length}</button>
@@ -883,9 +899,9 @@ function RankingTab() {
 
 /* ── InsuranceModal ── */
 function InsuranceModal({ pets, onClose, onRegister }) {
-  const [selPet,     setSelPet]     = useState(pets[0]?.petId || '')
-  const [selInsurer, setSelInsurer] = useState(INSURERS[0]?.id || '')
   const availPets = pets.filter(p => !p.insurer)
+  const [selPet,     setSelPet]     = useState(availPets[0]?.petId || '')
+  const [selInsurer, setSelInsurer] = useState(INSURERS[0]?.id || '')
   return (
     <Overlay title="보험 계약 등록" sub="반려동물과 보험사를 선택하세요" onClose={onClose}>
       <label className="fl">반려동물 선택</label>
@@ -894,8 +910,8 @@ function InsuranceModal({ pets, onClose, onRegister }) {
       ) : (
         <select className="fi" value={selPet} onChange={e=>setSelPet(e.target.value)}>
           <option value="">-- 선택하세요 --</option>
-          {pets.map(p => (
-            <option key={p.petId} value={p.petId} disabled={!!p.insurer}>{p.name} ({p.breed}){p.insurer ? ` — ${p.insurer} 가입중` : ''}</option>
+          {availPets.map(p => (
+            <option key={p.petId} value={p.petId}>{p.name} ({p.breed})</option>
           ))}
         </select>
       )}
@@ -912,7 +928,7 @@ function InsuranceModal({ pets, onClose, onRegister }) {
           </div>
         ))}
       </div>
-      <div className="fi-note" style={{ marginBottom:16 }}>📌 보험 등록 후 동의 관리 탭에서 진료기록별 동의를 설정하세요.</div>
+      <div className="fi-note" style={{ marginBottom:16 }}>📌 보험 등록 후 진료기록이 생기면 동의 관리 탭에서 자동 전달됩니다.</div>
       <button className="btn btn-primary" style={{ width:'100%', padding:13, fontSize:15, justifyContent:'center' }}
         disabled={!selPet || !selInsurer || availPets.length===0}
         onClick={() => onRegister(selPet, selInsurer)}>
@@ -935,6 +951,9 @@ export default function GuardianDash({ showToast, onLogout, initialTab = null, o
   const [consentModal,      setConsentModal]      = useState(null)   // recordId of pending consent
   const [consentInsurerId,  setConsentInsurerId]  = useState(INSURERS[0]?.id || '')
   const [consentCreating,   setConsentCreating]   = useState(false)
+  const [consentActivePage, setConsentActivePage] = useState(0)
+  const [consentRevokePage, setConsentRevokePage] = useState(0)
+  const [statusPage,        setStatusPage]        = useState(0)
 
   useEffect(() => {
     async function loadData() {
@@ -949,9 +968,31 @@ export default function GuardianDash({ showToast, onLogout, initialTab = null, o
           if (me.phone)  patch.userPhone = me.phone
           if (Object.keys(patch).length) update(patch)
         }
-        if (petsRes.status==='fulfilled') { const a=Array.isArray(petsRes.value)?petsRes.value:[]; if(a.length>0) update({ pets:a.map(p=>({ petId:p.petNumber||String(p.id),name:p.name,species:p.species,breed:p.breed,birthYear:p.birthYear,insurer:'' })) }) }
+        // 펫 로드 (consents에서 보험사 정보 반영 후 update)
+        let loadedPets = []
+        if (petsRes.status==='fulfilled') {
+          const a=Array.isArray(petsRes.value)?petsRes.value:[]
+          if(a.length>0) loadedPets=a.map(p=>({ petId:p.petNumber||String(p.id),name:p.name,species:p.species,breed:p.breed,birthYear:p.birthYear,insurer:'' }))
+        }
         if (recordsRes.status==='fulfilled') { const a=Array.isArray(recordsRes.value?.records)?recordsRes.value.records:(Array.isArray(recordsRes.value?.content)?recordsRes.value.content:[]); if(a.length>0) update({ medicalRecords:a.map(r=>({ id:String(r.recordId||r.id),petId:String(r.petId||''),petName:r.petName||'',date:(r.treatmentDate||r.date||'').replaceAll('-','.'),diseases:Array.isArray(r.diagnosisCodes)?r.diagnosisCodes:(Array.isArray(r.diseases)?r.diseases:[]),treatments:Array.isArray(r.treatmentCodes)?r.treatmentCodes:(Array.isArray(r.treatments)?r.treatments:[]),cost:r.treatmentCost||r.cost||0,memo:r.memo||'',onChain:!!(r.recordHash||r.onChain) })) }) }
-        if (consentsRes.status==='fulfilled') { const a=Array.isArray(consentsRes.value?.consents)?consentsRes.value.consents:(Array.isArray(consentsRes.value?.content)?consentsRes.value.content:[]); if(a.length>0){const sm={ACTIVE:'active',REVOKED:'revoked',PENDING:'pending'};const m={};a.forEach(c=>{const k=String(c.recordId);m[k]={consentId:String(c.consentId||c.id),recordId:k,guardianId:c.guardianId,insurerId:c.insurerId,status:sm[c.status]||(c.status||'').toLowerCase(),insurerName:c.insurerName||c.insurerId||'',pet:c.petName||'',disease:c.disease||'',hospital:c.hospitalName||'',cost:c.cost||0}});update({consents:m})} }
+        if (consentsRes.status==='fulfilled') {
+          const a=Array.isArray(consentsRes.value?.consents)?consentsRes.value.consents:(Array.isArray(consentsRes.value?.content)?consentsRes.value.content:[])
+          const sm={ACTIVE:'active',REVOKED:'revoked',PENDING:'pending'}
+          const m={}
+          const petInsurerMap={}
+          a.forEach(c=>{
+            const k=String(c.recordId)
+            m[k]={consentId:String(c.consentId||c.id||''),recordId:k,guardianId:c.guardianId,insurerId:c.insurerId||'',status:sm[c.status]||(c.status||'').toLowerCase(),insurerName:c.insurerName||c.insurerId||'',pet:c.petName||'',disease:c.disease||'',hospital:c.hospitalName||'',cost:Number(c.cost)||0,petId:String(c.petId||''),claimStatus:c.claimStatus||'pending',reviewResult:c.reviewResult||null}
+            if(c.petId && c.insurerName) petInsurerMap[String(c.petId)]=c.insurerName
+          })
+          const petsWithInsurer=loadedPets.length>0 ? loadedPets.map(p=>({...p, insurer:petInsurerMap[p.petId]||''})) : null
+          const patch={consents:m}
+          if(petsWithInsurer) patch.pets=petsWithInsurer
+          if(a.length>0 || loadedPets.length>0) update(patch)
+          else if(loadedPets.length>0) update({pets:loadedPets})
+        } else if(loadedPets.length>0) {
+          update({pets:loadedPets})
+        }
       } catch { /* fallback */ }
     }
     loadData()
@@ -964,8 +1005,25 @@ export default function GuardianDash({ showToast, onLogout, initialTab = null, o
   const handleToggle = async recordId => {
     const c=state.consents[recordId]; const next=c.status==='active'?'revoked':'active'
     toggleConsent(recordId)
-    showToast(next==='active'?'동의 완료':'동의 철회', next==='active'?`${recordId} — 보험사에 서류 자동 전달 시작`:`${recordId} — 보험사 접근 차단됨`)
-    try { if(c.status==='active') await apiFetch(`/consents/${c.consentId}/revoke`,{method:'POST'}); else await apiFetch('/consents',{method:'POST',body:{recordId:c.recordId,insurerId:c.insurerId||localStorage.getItem('userId')||'1',guardianId:c.guardianId||localStorage.getItem('userId')||'1'}}) } catch { /* 서버 미연결 시 로컬 상태만 갱신 */ }
+    showToast(next==='active'?'동의 완료':'동의 철회', next==='active'?`${recordId} — 보험사에 서류 자동 전달됩니다`:`${recordId} — 보험사 접근 차단됨`)
+    try {
+      if(c.status==='active') {
+        await apiFetch(`/consents/${c.consentId}/revoke`,{method:'POST'})
+      } else {
+        await apiFetch('/consents',{method:'POST',body:{recordId:c.recordId,insurerId:c.insurerId||localStorage.getItem('userId')||'1',guardianId:c.guardianId||localStorage.getItem('userId')||'1'}})
+      }
+      // 서버 최신 상태 반영
+      const res = await apiFetch('/consents?guardianId=me')
+      const a=Array.isArray(res?.consents)?res.consents:(Array.isArray(res?.content)?res.content:[])
+      if(a.length>0){
+        const sm={ACTIVE:'active',REVOKED:'revoked',PENDING:'pending'}
+        const m={}
+        const petInsurerMap={}
+        a.forEach(ci=>{const k=String(ci.recordId);m[k]={consentId:String(ci.consentId||ci.id||''),recordId:k,guardianId:ci.guardianId,insurerId:ci.insurerId||'',status:sm[ci.status]||(ci.status||'').toLowerCase(),insurerName:ci.insurerName||ci.insurerId||'',pet:ci.petName||'',disease:ci.disease||'',hospital:ci.hospitalName||'',cost:Number(ci.cost)||0,petId:String(ci.petId||''),claimStatus:ci.claimStatus||'pending',reviewResult:ci.reviewResult||null};if(ci.petId&&ci.insurerName)petInsurerMap[String(ci.petId)]=ci.insurerName})
+        const petsWithInsurer=state.pets.map(p=>({...p,insurer:petInsurerMap[p.petId]||p.insurer||''}))
+        update({consents:m, pets:petsWithInsurer})
+      }
+    } catch { /* 서버 미연결 시 로컬 상태만 갱신 */ }
   }
   const handleRegionSave = async region => {
     update({ userRegion:region }); showToast('지역 설정 완료',`거주지역이 ${region}(으)로 설정되었습니다`)
@@ -990,11 +1048,14 @@ export default function GuardianDash({ showToast, onLogout, initialTab = null, o
       if (a.length > 0) {
         const sm = {ACTIVE:'active',REVOKED:'revoked',PENDING:'pending',EXPIRED:'revoked'}
         const m = {}
+        const petInsurerMap = {}
         a.forEach(item => {
           const k = String(item.recordId)
-          m[k] = { consentId:String(item.consentId||item.id||''), recordId:k, guardianId:item.guardianId, insurerId:item.insurerId||'', status:sm[item.status]||(item.status||'').toLowerCase(), insurerName:item.insurerName||item.insurerId||'', pet:item.petName||'', disease:item.disease||'', hospital:item.hospitalName||'', cost:item.cost||0 }
+          m[k] = { consentId:String(item.consentId||item.id||''), recordId:k, guardianId:item.guardianId, insurerId:item.insurerId||'', status:sm[item.status]||(item.status||'').toLowerCase(), insurerName:item.insurerName||item.insurerId||'', pet:item.petName||'', disease:item.disease||'', hospital:item.hospitalName||'', cost:Number(item.cost)||0, petId:String(item.petId||''), claimStatus:item.claimStatus||'requested', reviewResult:item.reviewResult||null }
+          if(item.petId && item.insurerName) petInsurerMap[String(item.petId)] = item.insurerName
         })
-        update({ consents:m })
+        const petsWithInsurer = state.pets.map(p=>({...p, insurer:petInsurerMap[p.petId]||p.insurer||''}))
+        update({ consents:m, pets:petsWithInsurer })
       }
       setConsentModal(null)
     } catch (e) {
@@ -1129,44 +1190,83 @@ export default function GuardianDash({ showToast, onLogout, initialTab = null, o
           {tab==='records' && <RecordsTab records={state.medicalRecords} onDetail={setDetailRecord} />}
 
           {/* 동의 관리 */}
-          {tab==='consent' && (
+          {tab==='consent' && (() => {
+            const CPAGE = 5
+            const sortedConsents = [...consents].sort((a,b)=>String(b.recordId).localeCompare(String(a.recordId)))
+            const activeList  = sortedConsents.filter(c=>c.status==='active')
+            const revokeList  = sortedConsents.filter(c=>c.status!=='active')
+            const aTotalPages = Math.max(1, Math.ceil(activeList.length/CPAGE))
+            const rTotalPages = Math.max(1, Math.ceil(revokeList.length/CPAGE))
+            const aSafe = Math.min(consentActivePage, aTotalPages-1)
+            const rSafe = Math.min(consentRevokePage, rTotalPages-1)
+            const aPage = activeList.slice(aSafe*CPAGE, (aSafe+1)*CPAGE)
+            const rPage = revokeList.slice(rSafe*CPAGE, (rSafe+1)*CPAGE)
+            const Pager = ({page, total, onPage}) => total<=1 ? null : (
+              <div style={{ display:'flex', alignItems:'center', justifyContent:'center', gap:6, paddingTop:12 }}>
+                <button className="btn btn-ghost btn-sm" disabled={page===0} onClick={()=>onPage(page-1)}>← 이전</button>
+                {Array.from({length:total},(_,i)=>(
+                  <button key={i} className="btn btn-sm" onClick={()=>onPage(i)} style={{ minWidth:30, background:i===page?'var(--brand)':'transparent', color:i===page?'#fff':'var(--text)', border:i===page?'none':'1px solid var(--border)', fontWeight:i===page?600:400 }}>{i+1}</button>
+                ))}
+                <button className="btn btn-ghost btn-sm" disabled={page===total-1} onClick={()=>onPage(page+1)}>다음 →</button>
+              </div>
+            )
+            return (
             <div className="fade-in">
               <div className="pane-h">동의 관리</div>
               <div className="pane-sub">토글을 ON하면 보험사에 서류가 자동으로 전달됩니다</div>
               <div className="alert alert-info" style={{ marginBottom:28 }}>
                 ℹ️ 동의 유효기간은 1년이며, 언제든지 철회 가능합니다. 철회 즉시 보험사의 신규 접근이 차단됩니다.
               </div>
-              {consents.filter(c=>c.status==='active').length>0 && (
+              {activeList.length>0 && (
                 <div style={{ marginBottom:28 }}>
                   <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom:12 }}>
                     <div style={{ width:8, height:8, borderRadius:'50%', background:'var(--success)' }} />
-                    <span style={{ fontSize:13, fontWeight:600, color:'var(--success)', textTransform:'uppercase', letterSpacing:'.06em' }}>동의 완료 — {consents.filter(c=>c.status==='active').length}건 전송 중</span>
+                    <span style={{ fontSize:13, fontWeight:600, color:'var(--success)', textTransform:'uppercase', letterSpacing:'.06em' }}>동의 완료 — {activeList.length}건 전송 중</span>
                   </div>
                   <div style={{ display:'flex', flexDirection:'column', gap:10 }}>
-                    {consents.filter(c=>c.status==='active').map(c=><ConsentCard key={c.recordId} c={c} onToggle={handleToggle} onStartConsent={handleStartConsent}/>)}
+                    {aPage.map(c=><ConsentCard key={c.recordId} c={c} onToggle={handleToggle} onStartConsent={handleStartConsent}/>)}
                   </div>
+                  <Pager page={aSafe} total={aTotalPages} onPage={setConsentActivePage} />
                 </div>
               )}
-              {consents.filter(c=>c.status!=='active').length>0 && (
+              {revokeList.length>0 && (
                 <div>
                   <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom:12 }}>
                     <div style={{ width:8, height:8, borderRadius:'50%', background:'var(--muted-l)' }} />
-                    <span style={{ fontSize:13, fontWeight:600, color:'var(--muted)', textTransform:'uppercase', letterSpacing:'.06em' }}>미동의 / 철회 — {consents.filter(c=>c.status!=='active').length}건</span>
+                    <span style={{ fontSize:13, fontWeight:600, color:'var(--muted)', textTransform:'uppercase', letterSpacing:'.06em' }}>미동의 / 철회 — {revokeList.length}건</span>
                   </div>
                   <div style={{ display:'flex', flexDirection:'column', gap:10 }}>
-                    {consents.filter(c=>c.status!=='active').map(c=><ConsentCard key={c.recordId} c={c} onToggle={handleToggle} onStartConsent={handleStartConsent}/>)}
+                    {rPage.map(c=><ConsentCard key={c.recordId} c={c} onToggle={handleToggle} onStartConsent={handleStartConsent}/>)}
                   </div>
+                  <Pager page={rSafe} total={rTotalPages} onPage={setConsentRevokePage} />
                 </div>
               )}
               {consents.length===0 && <div className="card" style={{ textAlign:'center', padding:56, color:'var(--muted)' }}><div style={{ fontSize:32, marginBottom:10 }}>📋</div><div style={{ fontWeight:500, fontSize:16 }}>등록된 진료기록이 없습니다</div></div>}
             </div>
-          )}
+            )
+          })()}
 
           {/* 청구 상태 */}
           {tab==='status' && (
             <div className="fade-in">
-              <div className="pane-h">청구 상태</div>
-              <div className="pane-sub">보험 청구 진행 현황 (보험사 심사 진행 수준만 표시)</div>
+              <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-end', marginBottom:4 }}>
+                <div>
+                  <div className="pane-h" style={{ marginBottom:0 }}>청구 상태</div>
+                  <div className="pane-sub" style={{ marginBottom:0 }}>보험 청구 진행 현황 (보험사 심사 진행 수준만 표시)</div>
+                </div>
+                <button className="btn btn-ghost btn-sm" style={{ marginBottom:4 }} onClick={async () => {
+                  try {
+                    const res = await apiFetch('/consents?guardianId=me')
+                    const a=Array.isArray(res?.consents)?res.consents:(Array.isArray(res?.content)?res.content:[])
+                    if(a.length>0){
+                      const sm={ACTIVE:'active',REVOKED:'revoked',PENDING:'pending'}
+                      const m={}
+                      a.forEach(c=>{const k=String(c.recordId);m[k]={...state.consents[k],...{consentId:String(c.consentId||c.id||''),recordId:k,guardianId:c.guardianId,insurerId:c.insurerId||'',status:sm[c.status]||(c.status||'').toLowerCase(),insurerName:c.insurerName||c.insurerId||'',pet:c.petName||'',disease:c.disease||'',hospital:c.hospitalName||'',cost:Number(c.cost)||0,petId:String(c.petId||''),claimStatus:c.claimStatus||'pending',reviewResult:c.reviewResult||null}}})
+                      update({consents:m})
+                    }
+                  } catch { /* 무시 */ }
+                }}>↻ 새로고침</button>
+              </div>
               {consents.filter(c=>c.status==='active').length===0 ? (
                 <div className="card" style={{ textAlign:'center', padding:64, color:'var(--muted)' }}>
                   <div style={{ fontSize:36, marginBottom:14 }}>🔒</div>
@@ -1174,39 +1274,75 @@ export default function GuardianDash({ showToast, onLogout, initialTab = null, o
                   <div style={{ fontSize:15 }}>동의 관리 탭에서 토글을 ON 해주세요</div>
                   <button className="btn btn-primary" style={{ marginTop:20 }} onClick={() => setTab('consent')}>동의 관리로 이동 →</button>
                 </div>
-              ) : (
+              ) : (() => {
+                const SPAGE = 5
+                const sortedActive = [...consents].filter(c=>c.status==='active').sort((a,b)=>String(b.recordId).localeCompare(String(a.recordId)))
+                const sTotalPages = Math.max(1, Math.ceil(sortedActive.length/SPAGE))
+                const sSafe = Math.min(statusPage, sTotalPages-1)
+                const sPageItems = sortedActive.slice(sSafe*SPAGE, (sSafe+1)*SPAGE)
+                return (
+                <>
                 <div className="g2">
-                  {consents.filter(c=>c.status==='active').map(c => (
-                    <div key={c.recordId} className="card">
-                      <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start', marginBottom:20 }}>
-                        <div>
-                          <div style={{ fontSize:17, fontWeight:600, marginBottom:4 }}>{c.pet} · {c.disease}</div>
-                          <div style={{ fontSize:14, color:'var(--muted)', display:'flex', gap:10 }}>
-                            <span className="mono">{c.recordId}</span><span>· {c.cost.toLocaleString()}원</span>
+                  {sPageItems.map(c => {
+                    const cs = c.claimStatus || 'pending'
+                    const rv = c.reviewResult || null
+                    const isApproved = rv==='approved' || cs==='approved'
+                    const isRejected = rv==='rejected' || cs==='rejected'
+                    const isVerified = cs==='verified' || cs==='approved' || cs==='rejected'
+                    const isRequested = cs==='requested' || isVerified
+                    const steps = [
+                      {lbl:'동의 완료',      sub:'consent_status: ACTIVE',    done:true},
+                      {lbl:'보험사 접수',     sub:'claim_status: requested',   done:isRequested, now:!isRequested},
+                      {lbl:'해시 검증 완료',  sub:'detail_data_hash 일치',     done:isVerified,  now:isRequested&&!isVerified},
+                      {lbl:'심사 결과',       sub: isApproved?'✅ APPROVED — 승인' : isRejected?'❌ REJECTED — 반려' : 'APPROVED / REJECTED 대기',
+                        done:isApproved||isRejected, now:isVerified&&!isApproved&&!isRejected,
+                        approved:isApproved, rejected:isRejected},
+                    ]
+                    return (
+                      <div key={c.recordId} className="card">
+                        <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start', marginBottom:20 }}>
+                          <div>
+                            <div style={{ fontSize:17, fontWeight:600, marginBottom:4 }}>{c.pet} · {c.disease}</div>
+                            <div style={{ fontSize:14, color:'var(--muted)', display:'flex', gap:10 }}>
+                              <span className="mono">{c.recordId}</span><span>· {c.cost.toLocaleString()}원</span>
+                            </div>
                           </div>
+                          {isApproved && <span className="badge badge-success">승인 완료</span>}
+                          {isRejected && <span className="badge badge-danger">반려됨</span>}
+                          {!isApproved && !isRejected && <span className="badge badge-brand">심사 중</span>}
                         </div>
-                        <span className="badge badge-brand">보험사 접수됨</span>
+                        {steps.map((r,i) => (
+                          <div key={i} className="tl-row">
+                            <div className="tl-dot" style={{
+                              background: r.approved?'var(--success)': r.rejected?'var(--danger)': r.done?'var(--success)': r.now?'var(--brand)':'var(--border-d)',
+                              boxShadow: r.now?'0 0 0 4px var(--brand-xl)':'none'
+                            }} />
+                            <div style={{ flex:1 }}>
+                              <div style={{ fontSize:15, fontWeight:500, color: r.approved?'var(--success)': r.rejected?'var(--danger)': r.done?'var(--success)': r.now?'var(--brand)':'var(--muted)' }}>{r.lbl}</div>
+                              <div style={{ fontSize:13, color:'var(--muted)', marginTop:2, fontFamily:'var(--mono)' }}>{r.sub}</div>
+                            </div>
+                            {r.approved && <span className="badge badge-success" style={{ marginLeft:'auto' }}>승인</span>}
+                            {r.rejected && <span className="badge badge-danger" style={{ marginLeft:'auto' }}>반려</span>}
+                            {!r.approved && !r.rejected && r.done && <span className="badge badge-success" style={{ marginLeft:'auto' }}>완료</span>}
+                            {!r.approved && !r.rejected && r.now  && <span className="badge badge-brand" style={{ marginLeft:'auto' }}>진행 중</span>}
+                          </div>
+                        ))}
                       </div>
-                      {[
-                        {lbl:'동의 완료',     sub:'consent_status: ACTIVE', done:true},
-                        {lbl:'해시 검증 완료', sub:'detail_data_hash 일치',  done:true},
-                        {lbl:'보험사 검토 중', sub:'UNDER_REVIEW',           now:true},
-                        {lbl:'심사 결과',     sub:'APPROVED / CLOSED',      wait:true},
-                      ].map((r,i) => (
-                        <div key={i} className="tl-row">
-                          <div className="tl-dot" style={{ background:r.done?'var(--success)':r.now?'var(--brand)':'var(--border-d)', boxShadow:r.now?'0 0 0 4px var(--brand-xl)':'none' }} />
-                          <div style={{ flex:1 }}>
-                            <div style={{ fontSize:15, fontWeight:500, color:r.done?'var(--success)':r.now?'var(--brand)':'var(--muted)' }}>{r.lbl}</div>
-                            <div style={{ fontSize:13, color:'var(--muted)', marginTop:2, fontFamily:'var(--mono)' }}>{r.sub}</div>
-                          </div>
-                          {r.done && <span className="badge badge-success" style={{ marginLeft:'auto' }}>완료</span>}
-                          {r.now  && <span className="badge badge-brand"   style={{ marginLeft:'auto' }}>진행 중</span>}
-                        </div>
-                      ))}
-                    </div>
-                  ))}
+                    )
+                  })}
                 </div>
-              )}
+                {sTotalPages>1 && (
+                  <div style={{ display:'flex', alignItems:'center', justifyContent:'center', gap:6, paddingTop:16 }}>
+                    <button className="btn btn-ghost btn-sm" disabled={sSafe===0} onClick={()=>setStatusPage(sSafe-1)}>← 이전</button>
+                    {Array.from({length:sTotalPages},(_,i)=>(
+                      <button key={i} className="btn btn-sm" onClick={()=>setStatusPage(i)} style={{ minWidth:30, background:i===sSafe?'var(--brand)':'transparent', color:i===sSafe?'#fff':'var(--text)', border:i===sSafe?'none':'1px solid var(--border)', fontWeight:i===sSafe?600:400 }}>{i+1}</button>
+                    ))}
+                    <button className="btn btn-ghost btn-sm" disabled={sSafe===sTotalPages-1} onClick={()=>setStatusPage(sSafe+1)}>다음 →</button>
+                  </div>
+                )}
+                </>
+                )
+              })()}
             </div>
           )}
 

@@ -41,7 +41,9 @@ public final class ConsentDtos {
             java.time.LocalDate date,
             String petId,
             String hospitalId,
-            String recordHash
+            String recordHash,
+            String claimStatus,
+            String reviewResult
     ) {
     }
 

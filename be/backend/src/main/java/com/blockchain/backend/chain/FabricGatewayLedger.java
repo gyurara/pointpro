@@ -1,9 +1,12 @@
 package com.blockchain.backend.chain;
 
-import io.grpc.ManagedChannel;
-import io.grpc.netty.shaded.io.grpc.netty.GrpcSslContexts;
-import io.grpc.netty.shaded.io.grpc.netty.NettyChannelBuilder;
-import jakarta.annotation.PreDestroy;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.security.PrivateKey;
+import java.security.cert.X509Certificate;
+import java.util.stream.Stream;
+
 import org.hyperledger.fabric.client.Contract;
 import org.hyperledger.fabric.client.Gateway;
 import org.hyperledger.fabric.client.identity.Identities;
@@ -16,12 +19,10 @@ import org.slf4j.LoggerFactory;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Component;
 
-import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.security.PrivateKey;
-import java.security.cert.X509Certificate;
-import java.util.stream.Stream;
+import io.grpc.ManagedChannel;
+import io.grpc.netty.shaded.io.grpc.netty.GrpcSslContexts;
+import io.grpc.netty.shaded.io.grpc.netty.NettyChannelBuilder;
+import jakarta.annotation.PreDestroy;
 
 /**
  * chain.enabled=true 일 때 실제 Hyperledger Fabric Gateway에 연결하는 구현.
@@ -119,13 +120,13 @@ public class FabricGatewayLedger implements PetChainLedger {
 
     @Override
     public String registerRecord(String recordId, String hospitalId, String recordHash,
-                                  String attachJson, String createdAt) {
+                                String attachJson, String createdAt) {
         return submit("RegisterRecord", recordId, hospitalId, recordHash, attachJson, createdAt);
     }
 
     @Override
     public String registerConsent(String consentId, String recordId, String insurerId,
-                                   String guardianHash, String validUntil, String createdAt) {
+                                String guardianHash, String validUntil, String createdAt) {
         return submit("RegisterConsent", consentId, recordId, insurerId, guardianHash, validUntil, createdAt);
     }
 
@@ -136,24 +137,24 @@ public class FabricGatewayLedger implements PetChainLedger {
 
     @Override
     public String createSubmissionWithConsent(String subId, String recordId, String consentId,
-                                               String hospitalId, String insurerId,
-                                               String recordHashAtSubmit, String createdAt) {
+                                            String hospitalId, String insurerId,
+                                            String recordHashAtSubmit, String createdAt) {
         return submit("CreateSubmissionWithConsent",
                 subId, recordId, consentId, hospitalId, insurerId, recordHashAtSubmit, createdAt);
     }
 
     @Override
     public String recordVerification(String verId, String subId, String status, String failJson,
-                                      String recordHashAtVerify, String consentSnapshot,
-                                      String verifiedAt, String auditLogId) {
+                                    String recordHashAtVerify, String consentSnapshot,
+                                    String verifiedAt, String auditLogId) {
         return submit("RecordVerification",
                 verId, subId, status, failJson, recordHashAtVerify, consentSnapshot, verifiedAt, auditLogId);
     }
 
     @Override
     public String processSuccessfulVerification(String verId, String subId, String recordHashAtVerify,
-                                                 String consentSnapshot, String verifiedAt,
-                                                 String auditLogId, String idem) {
+                                                String consentSnapshot, String verifiedAt,
+                                                String auditLogId, String idem) {
         return submit("ProcessSuccessfulVerification",
                 verId, subId, recordHashAtVerify, consentSnapshot, verifiedAt, auditLogId, idem);
     }

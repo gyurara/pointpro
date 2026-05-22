@@ -143,6 +143,25 @@ public class AuthService {
                 .build();
     }
 
+    // 토큰 갱신 (refresh token → new access token)
+    @Transactional
+    public AuthResponse refresh(String rawRefreshToken) {
+        String tokenHash = jwtUtil.hashToken(rawRefreshToken);
+        RefreshToken stored = refreshTokenRepository.findByTokenHash(tokenHash)
+                .orElseThrow(() -> new IllegalArgumentException("유효하지 않은 리프레시 토큰입니다."));
+        if (Boolean.TRUE.equals(stored.getIsRevoked())) {
+            throw new IllegalArgumentException("이미 사용된 리프레시 토큰입니다.");
+        }
+        if (stored.getExpiresAt().isBefore(LocalDateTime.now())) {
+            throw new IllegalArgumentException("리프레시 토큰이 만료되었습니다.");
+        }
+        User user = stored.getUser();
+        stored.setIsRevoked(true);
+        refreshTokenRepository.save(stored);
+        String memberNumber = resolveMemberNumber(user);
+        return issueTokens(user, memberNumber, "토큰 갱신이 완료되었습니다.");
+    }
+
     // 로그인 (모든 역할 공통)
     @Transactional
     public AuthResponse login(LoginRequest req) {
